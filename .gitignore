@@ -1,3 +1,5 @@
 .idea/*
 audio-clips/*
 video-clips/*
+subtitles/*
+transcript.csv
