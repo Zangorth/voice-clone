@@ -136,8 +136,6 @@ elif 'submitted' not in st.session_state:
         st.session_state['submitted'] = True
 
         st.experimental_rerun()
-    
-    st.video(open(f'video-clips/{source}/{episode}', 'rb').read())
 
 else:
     st.write('Data has been pushed to SQL; clear cache and rerun if you wish to proceed')
