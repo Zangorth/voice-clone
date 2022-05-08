@@ -1,16 +1,34 @@
 ###########
 # Imports #
 ###########
+from sqlalchemy import create_engine
 from pydub import AudioSegment
 import streamlit as st
 from math import floor
 import pandas as pd
 import numpy as np
+import urllib
 import pysrt
 import os
 
 st.set_page_config(page_title='Data Build', layout='wide')
 st.title('Data Build')
+
+####################
+# Define Functions #
+####################
+def upload(dataframe, schema, table, exists='append'):
+    conn_str = (
+        r'Driver={ODBC Driver 17 for SQL Server};'
+        r'Server=ZANGORTH;'
+        r'Database=HomeBase;'
+        'Trusted_Connection=yes;'
+    )
+    con = urllib.parse.quote_plus(conn_str)
+    engine = create_engine(f'mssql+pyodbc:///?odbc_connect={con}')
+    dataframe.to_sql(name=table, con=engine, schema=schema, if_exists=exists, index=False)
+
+    return None
 
 ###########
 # Options #
@@ -18,32 +36,37 @@ st.title('Data Build')
 sidebar = st.sidebar
 
 if 'chdir' not in st.session_state:
+    # Streamlit doesn't import your working directory so you have to manually set the project directory
     with sidebar.form('directory_form'):
         chdir = st.text_input('Working Directory:', 'C:/Users/Samuel/Google Drive/Portfolio/Voice Clone')
         directory_submit = st.form_submit_button()
 
     if directory_submit:
-        st.session_state['chdir'] = chdir
+        os.chdir(chdir)
+        st.session_state['chdir'] = True
         st.experimental_rerun()
 
 elif 'panda' not in st.session_state:
-    os.chdir(st.session_state['chdir'])
-
+    # Select the episode that you want to label
     with sidebar.form('episode_form'):
         source = st.selectbox('Data Source', os.listdir('video-clips/'))
         episode = st.selectbox('Episode', os.listdir(f'video-clips/{source}/'))
         episode_submit = st.form_submit_button()
 
     if episode_submit:
+        # Pull in the transcript file
         transcript = pysrt.open(f'subtitles/{source}/{episode.replace(".mp4", ".srt")}')
 
+        # Pull in the audio file
         audio_path = f'audio-clips/{source}/{episode.replace(".mp4", "")}/{episode.replace(".mp4", "-full-clip.wav")}'
         st.session_state['audio'] = AudioSegment.from_file(audio_path)
 
-        panda = pd.DataFrame({'start': [text.start.seconds + text.start.milliseconds / 1000 for text in transcript],
+        panda = pd.DataFrame({'source': source,
+                              'episode': episode.replace('-', ''),
+                              'speaker': np.nan,
+                              'start': [text.start.seconds + text.start.milliseconds / 1000 for text in transcript],
                               'end': [text.end.seconds + text.end.milliseconds / 1000 for text in transcript],
-                              'text': [text.text for text in transcript],
-                              'speaker': np.nan})
+                              'text': [text.text for text in transcript]})
 
         st.session_state['panda'] = panda.copy()
         st.session_state['source'] = source
@@ -54,15 +77,16 @@ elif 'panda' not in st.session_state:
 ####################
 # Video/Transcript #
 ####################
-else:
+elif 'submitted' not in st.session_state:
     episode = st.session_state['episode']
     source = st.session_state['source']
 
-    st.dataframe(st.session_state['panda'])
-
     current = st.session_state['panda'].loc[st.session_state['panda']['speaker'].isnull()].copy()
-    next = {'start': current.iloc[1, 0], 'end': current.iloc[1, 1], 'text': current.iloc[1, 2]}
-    current = {'start': current.iloc[0, 0], 'end': current.iloc[0, 1], 'text': current.iloc[0, 2]}
+    next = {'start': current.iloc[1, 3], 'end': current.iloc[1, 4], 'text': current.iloc[1, 5]}
+    current = {'start': current.iloc[0, 3], 'end': current.iloc[0, 4], 'text': current.iloc[0, 5]}
+
+    current['text'] = current['text'].replace('\n', '')
+    next['text'] = next['text'].replace('\n', '')
 
     st.write(f'Current ({current["start"]} - {current["end"]}): {current["text"]}')
     st.write(f'Next ({next["start"]} - {next["end"]}): {next["text"]}')
@@ -77,6 +101,7 @@ else:
     speaker_submit = left.button('Submit')
     combine = right.button('Same Speaker?')
 
+    # Assign a speaker to the text and save out the audio clip related to that text
     if speaker_submit:
         st.session_state['panda'].loc[st.session_state['panda']['start'] == current['start'], 'speaker'] = speaker
 
@@ -92,6 +117,7 @@ else:
 
         st.experimental_rerun()
 
+    # Sometimes the transcript splits the same sentence into two chunks, so we combine them here
     if combine:
         st.session_state['panda'].loc[st.session_state['panda']['start'] == current['start'], 'text'] = current['text'] + ' ' + next['text']
         st.session_state['panda'].loc[st.session_state['panda']['start'] == current['start'], 'end'] = next['end']
@@ -100,4 +126,20 @@ else:
 
         st.experimental_rerun()
 
-    st.video(open(f'video-clips/{source}/{episode}', 'rb').read(), start_time=floor(current['start']))
+    submit = sidebar.button('Push Data to SQL?')
+
+    to_upload = st.session_state['panda'].loc[st.session_state['panda']['speaker'].notnull()].copy()
+
+    if submit:
+        to_upload = st.session_state['panda'].loc[st.session_state['panda']['speaker'].notnull()].copy()
+        upload(to_upload, schema='voiceclone', table=source)
+        st.session_state['submitted'] = True
+
+        st.experimental_rerun()
+    
+    st.video(open(f'video-clips/{source}/{episode}', 'rb').read())
+
+else:
+    st.write('Data has been pushed to SQL; clear cache and rerun if you wish to proceed')
+
+
