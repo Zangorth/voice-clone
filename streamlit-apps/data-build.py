@@ -64,8 +64,8 @@ elif 'panda' not in st.session_state:
         panda = pd.DataFrame({'source': source,
                               'episode': episode.replace('-', ''),
                               'speaker': np.nan,
-                              'start': [text.start.seconds + text.start.milliseconds / 1000 for text in transcript],
-                              'end': [text.end.seconds + text.end.milliseconds / 1000 for text in transcript],
+                              'start': [text.start.minutes*60 + text.start.seconds + text.start.milliseconds / 1000 for text in transcript],
+                              'end': [text.start.minutes*60 + text.end.seconds + text.end.milliseconds / 1000 for text in transcript],
                               'text': [(text.text).replace('\n', ' ') for text in transcript]})
 
         st.session_state['panda'] = panda.copy()
