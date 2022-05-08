@@ -66,7 +66,7 @@ elif 'panda' not in st.session_state:
                               'speaker': np.nan,
                               'start': [text.start.seconds + text.start.milliseconds / 1000 for text in transcript],
                               'end': [text.end.seconds + text.end.milliseconds / 1000 for text in transcript],
-                              'text': [text.text for text in transcript]})
+                              'text': [(text.text).replace('\n', ' ') for text in transcript]})
 
         st.session_state['panda'] = panda.copy()
         st.session_state['source'] = source
@@ -84,9 +84,6 @@ elif 'submitted' not in st.session_state:
     current = st.session_state['panda'].loc[st.session_state['panda']['speaker'].isnull()].copy()
     next = {'start': current.iloc[1, 3], 'end': current.iloc[1, 4], 'text': current.iloc[1, 5]}
     current = {'start': current.iloc[0, 3], 'end': current.iloc[0, 4], 'text': current.iloc[0, 5]}
-
-    current['text'] = current['text'].replace('\n', '')
-    next['text'] = next['text'].replace('\n', '')
 
     st.write(f'Current ({current["start"]} - {current["end"]}): {current["text"]}')
     st.write(f'Next ({next["start"]} - {next["end"]}): {next["text"]}')
@@ -126,6 +123,18 @@ elif 'submitted' not in st.session_state:
 
         st.experimental_rerun()
 
+    # Option to fix spelling/grammar mistakes in the subtitle file
+    with st.form('correction_form', clear_on_submit=True):
+        correct_text = st.text_area('Corrected Transcript',
+                                    value=st.session_state['panda'].loc[st.session_state['panda']['start'] == current['start'], 'text'].item())
+
+        correct_submit = st.form_submit_button()
+
+        if correct_submit:
+            st.session_state['panda'].loc[st.session_state['panda']['start'] == current['start'], 'text'] = correct_text
+            st.experimental_rerun()
+
+    # Push the data to SQL
     submit = sidebar.button('Push Data to SQL?')
 
     to_upload = st.session_state['panda'].loc[st.session_state['panda']['speaker'].notnull()].copy()
